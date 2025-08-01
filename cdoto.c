@@ -7,6 +7,7 @@
 #define TASK_DESCRIPTION_LEN 1024
 #define TASK_FILE_NAME "cdoto.txt"
 #define TASK_PARSE_TEMPLATE "%d:%s:%s:%d\n"
+#define TASK_DEFAUL_INIT {0, "Task", "-", 1}
 #define TASK_FIELDS_COUNT 4
 /*
  * h - help menu
@@ -35,7 +36,7 @@ int file_read_last_str(FILE *fp, char *str, int str_size);
 
 // Task shit
 int task_gen_id(char *filename);
-Task task_create(int argc, char *argv[]);
+int task_create(Task *task, int argc, char *argv[]);
 int task_file_append(Task *task);
 int strtotask(char *str, Task *task);
 
@@ -51,19 +52,27 @@ int file_touch(char *filename) {
   return 0;
 }
 
-Task task_create(int argc, char *argv[]) {
-  Task new_task = {task_gen_id(TASK_FILE_NAME), "Task", "-",
-                   1}; // Status: active
-  int c_arg_cntr = 0;  // 1 < c_arg_cntr < 3
+int task_create(Task *task, int argc, char *argv[]) {
+  int c_arg_cntr = 0; // 1 < c_arg_cntr < 3
 
-  strcpy(new_task.title, optarg);
+  task->id = task_gen_id(TASK_FILE_NAME);
+  if (task->id == -1) {
+    fprintf(stderr, "!=> Error occured while generating ID.\n");
+    return 1;
+  }
+  if (task->id == 0) {
+    fprintf(stderr, "!=> Idk how it even possible...\n");
+    return 1000 - 7;
+  }
+
+  strcpy(task->title, optarg);
   c_arg_cntr++; // 1
 
   if (optind < argc && argv[optind][0] != '-') {
-    strcpy(new_task.description, argv[optind]);
+    strcpy(task->description, argv[optind]);
     c_arg_cntr++; // 2
   }
-  return new_task;
+  return 0;
 }
 
 int task_file_append(Task *task) {
@@ -81,10 +90,11 @@ int task_file_append(Task *task) {
 }
 
 int file_read_last_str(FILE *fp, char *str, int str_size) {
-  long long fp_pos = ftell(fp);
+  long long fp_pos;
   int fp_nl_ctr = 0;
 
   fseek(fp, 0, SEEK_END);
+  fp_pos = ftell(fp);
 
   while (fp_pos > 0 && fseek(fp, --fp_pos, SEEK_SET) == 0) {
     if (fgetc(fp) == '\n') {
@@ -92,6 +102,7 @@ int file_read_last_str(FILE *fp, char *str, int str_size) {
         if (!(fgets(str, str_size, fp))) {
           return 1;
         }
+        return 0;
       }
       fp_nl_ctr++;
     }
@@ -109,8 +120,8 @@ int file_read_last_str(FILE *fp, char *str, int str_size) {
 int strtotask(char *str, Task *task) {
   int things_readed = 0;
 
-  things_readed = sscanf(str, TASK_PARSE_TEMPLATE, &task->id, task->title,
-                         task->description, &task->status);
+  things_readed = sscanf(str, "%d:%255[^:]:%1023[^:]:%d\n", &task->id,
+                         task->title, task->description, &task->status);
   if (things_readed != TASK_FIELDS_COUNT) {
     fprintf(stderr,
             "!=> Can't properly parse str -> Task. Expected: %d; Readed: %d.\n",
@@ -155,12 +166,15 @@ int task_gen_id(char *filename) {
 int main(int argc, char *argv[]) {
   TList *head = NULL; // Init head of TList
   int opt;
-  Task new_task;
+  Task new_task = TASK_DEFAUL_INIT;
 
   while ((opt = getopt(argc, argv, ARGUMENTS)) != -1) {
     switch (opt) {
     case 'c': {
-      new_task = task_create(argc, argv);
+      if (task_create(&new_task, argc, argv)) {
+        fprintf(stderr, "!=> Can't create task.\n");
+        return 1;
+      }
       if (task_file_append(&new_task)) {
         return 1;
       }
