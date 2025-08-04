@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -31,16 +32,85 @@ typedef struct tasks_list {
 // DECLARATIONS
 
 // System
-int file_touch(char *filename); // TODO:
+int file_touch(char *filename);
+FILE *file_open_r(char *filename);
+FILE *file_open_a(char *filename); // TODO:
+FILE *file_open_w(char *filename); // TODO:
 int file_read_last_str(FILE *fp, char *str, int str_size);
 
 // Task shit
+int task_show(TList *head, char mode);         // TODO:
+TList *task_read(char *filename, TList *head); // TODO: Test It Only
 int task_gen_id(char *filename);
 int task_create(Task *task, int argc, char *argv[]);
 int task_file_append(Task *task);
 int strtotask(char *str, Task *task);
 
 // DEFINITIONS
+
+int task_show(TList *head, char mode) {
+  TList *curr_node = head;
+  int tasks_printed = 0;
+
+  if (head == NULL) {
+    return -1;
+  }
+
+  while (curr_node != NULL) {
+    printf("%d - %s - %s - %d\n", curr_node->task->id, curr_node->task->title,
+           curr_node->task->description, curr_node->task->status);
+    curr_node = curr_node->next;
+    tasks_printed++;
+  }
+  return tasks_printed;
+}
+
+FILE *file_open_r(char *filename) {
+  FILE *fp = fopen(filename, "r");
+
+  if (fp == NULL) {
+    fprintf(stderr, "!=> Can't open file \"%s\" in READ mode.\n", filename);
+    return NULL;
+  }
+  return fp;
+}
+
+// Reurns Count of readed tasks
+TList *task_read(char *filename, TList *head) {
+  FILE *fp = file_open_r(filename);
+  if (fp == NULL) {
+    return NULL;
+  }
+
+  TList *prev_node = NULL;
+  TList *curr_node = NULL;
+  int tasks_cntr = 0;
+  char str_buff[TASK_TITLE_LEN + TASK_DESCRIPTION_LEN + 128];
+  char *is_continue;
+
+  while (is_continue) {
+    is_continue =
+        fgets(str_buff, TASK_TITLE_LEN + TASK_DESCRIPTION_LEN + 128, fp);
+    if (is_continue == NULL || str_buff[0] == '\n') {
+      break;
+    }
+
+    curr_node = (TList *)malloc(sizeof(struct tasks_list));
+    curr_node->next = NULL;
+    curr_node->task = (Task *)malloc(sizeof(struct task));
+    if (head == NULL) {
+      head = curr_node;
+    }
+    strtotask(str_buff, curr_node->task);
+    if (prev_node != NULL) {
+      prev_node->next = curr_node;
+    }
+    prev_node = curr_node;
+
+    tasks_cntr++;
+  }
+  return head;
+}
 
 int file_touch(char *filename) {
   FILE *fp;
@@ -124,7 +194,7 @@ int strtotask(char *str, Task *task) {
                          task->title, task->description, &task->status);
   if (things_readed != TASK_FIELDS_COUNT) {
     fprintf(stderr,
-            "!=> Can't properly parse str -> Task. Expected: %d; Readed: %d.\n",
+            "!=> Can't properly parse str -> Task. Expected:%d; Readed:%d.\n",
             TASK_FIELDS_COUNT, things_readed);
     return 1;
   }
@@ -167,6 +237,12 @@ int main(int argc, char *argv[]) {
   TList *head = NULL; // Init head of TList
   int opt;
   Task new_task = TASK_DEFAUL_INIT;
+
+  if (argc == 1) { // TODO:
+    head = task_read(TASK_FILE_NAME, head);
+    task_show(head, 0);
+    return 0;
+  }
 
   while ((opt = getopt(argc, argv, ARGUMENTS)) != -1) {
     switch (opt) {
