@@ -7,8 +7,9 @@
 #define TASK_TITLE_LEN 256
 #define TASK_DESCRIPTION_LEN 1024
 #define TASK_FILE_NAME "cdoto.txt"
-#define TASK_PARSE_TEMPLATE "%d:%s:%s:%d\n"
-#define TASK_DEFAUL_INIT {0, "Task", "-", 1}
+#define TASK_WRITE_TEMPLATE "%d^%s^%s^%d\n"
+#define TASK_READ_TEMPLATE "%d^%255[^^]^%1023[^^]^%d\n"
+#define TASK_DEFAULT_INIT {0, "Task", "-", ACTIVE}
 #define TASK_FIELDS_COUNT 4
 /*
  * h - help menu
@@ -17,11 +18,22 @@
 #define ARGUMENTS "hc:"
 
 // STRUCTURES
+typedef enum {
+  RET_NONVALID = -1, // For Numbers
+  RET_SUCCESS = 0,
+  RET_ERROR = 1, // For Statuses
+  // RET_UNDEFBEHAV = 77,
+  // RET_NOTIMPLEMENTED = 99
+} RetCode;
+
+typedef enum { DONE = 0, ACTIVE = 1, EXPIRED = 2, DELETED = 3 } TaskStatus;
+
 typedef struct task {
   int id;
   char title[TASK_TITLE_LEN];
   char description[TASK_DESCRIPTION_LEN];
-  int status; // 0 - done; 1 - active ; 2 - other;
+  // int status; // 0 - done; 1 - active ; 2 - other;
+  TaskStatus status;
 } Task;
 
 typedef struct tasks_list {
@@ -37,10 +49,11 @@ FILE *file_open_r(char *filename);
 FILE *file_open_a(char *filename); // TODO:
 FILE *file_open_w(char *filename); // TODO:
 int file_read_last_str(FILE *fp, char *str, int str_size);
+void free_tlist(TList *head);
 
 // Task shit
-int task_show(TList *head, char mode);         // TODO:
-TList *task_read(char *filename, TList *head); // TODO: Test It Only
+int task_show(TList *head, char mode);
+TList *task_read(char *filename, TList *head);
 int task_gen_id(char *filename);
 int task_create(Task *task, int argc, char *argv[]);
 int task_file_append(Task *task);
@@ -48,15 +61,28 @@ int strtotask(char *str, Task *task);
 
 // DEFINITIONS
 
+void free_tlist(TList *head) {
+  TList *next_node;
+  TList *node = head;
+
+  while (node != NULL) {
+    next_node = node->next;
+    free(node->task);
+    free(node);
+    node = next_node;
+  }
+}
+
+// Ret: E:RET_NONVALID S:count of printed tasks
 int task_show(TList *head, char mode) {
   TList *curr_node = head;
   int tasks_printed = 0;
 
   if (head == NULL) {
-    return -1;
+    return RET_NONVALID;
   }
 
-  while (curr_node != NULL) {
+  while (curr_node != NULL) { // TODO: Rework Print Template for Tasks
     printf("%d - %s - %s - %d\n", curr_node->task->id, curr_node->task->title,
            curr_node->task->description, curr_node->task->status);
     curr_node = curr_node->next;
@@ -65,6 +91,7 @@ int task_show(TList *head, char mode) {
   return tasks_printed;
 }
 
+// Ret: E:NULL S:non-NULL
 FILE *file_open_r(char *filename) {
   FILE *fp = fopen(filename, "r");
 
@@ -75,7 +102,7 @@ FILE *file_open_r(char *filename) {
   return fp;
 }
 
-// Reurns Count of readed tasks
+// Ret: E: NULL S: non-NULL
 TList *task_read(char *filename, TList *head) {
   FILE *fp = file_open_r(filename);
   if (fp == NULL) {
@@ -88,6 +115,7 @@ TList *task_read(char *filename, TList *head) {
   char str_buff[TASK_TITLE_LEN + TASK_DESCRIPTION_LEN + 128];
   char *is_continue;
 
+  // Reading Strings & Creating Chained List
   while (is_continue) {
     is_continue =
         fgets(str_buff, TASK_TITLE_LEN + TASK_DESCRIPTION_LEN + 128, fp);
@@ -112,53 +140,58 @@ TList *task_read(char *filename, TList *head) {
   return head;
 }
 
+// Ret: E:RET_ERROR S:RET_SUCCESS
 int file_touch(char *filename) {
   FILE *fp;
 
   if (!(fp = fopen(filename, "a"))) {
-    return 1;
+    return RET_ERROR;
   }
 
-  return 0;
+  fclose(fp);
+  return RET_SUCCESS;
 }
 
+// TODO: Instead of argc & argv provide exactly TITLE & DESCRIPTION
+// Ret: E:RET_ERROR S:RET_SUCCESS
 int task_create(Task *task, int argc, char *argv[]) {
   int c_arg_cntr = 0; // 1 < c_arg_cntr < 3
 
   task->id = task_gen_id(TASK_FILE_NAME);
-  if (task->id == -1) {
+  if (task->id == RET_NONVALID) {
     fprintf(stderr, "!=> Error occured while generating ID.\n");
-    return 1;
-  }
-  if (task->id == 0) {
-    fprintf(stderr, "!=> Idk how it even possible...\n");
-    return 1000 - 7;
+    return RET_ERROR;
   }
 
-  strcpy(task->title, optarg);
+  strncpy(task->title, optarg, TASK_TITLE_LEN - 1);
+  task->title[TASK_TITLE_LEN - 1] = '\0';
   c_arg_cntr++; // 1
 
   if (optind < argc && argv[optind][0] != '-') {
-    strcpy(task->description, argv[optind]);
+    strncpy(task->description, argv[optind], TASK_DESCRIPTION_LEN);
+    task->description[TASK_DESCRIPTION_LEN - 1] = '\0';
     c_arg_cntr++; // 2
   }
-  return 0;
+  return RET_SUCCESS;
 }
 
+// Ret: E:RET_ERROR S:RET_SUCCESS
 int task_file_append(Task *task) {
   FILE *fp;
 
   fp = fopen(TASK_FILE_NAME, "a");
   if (!fp) {
     perror("!=> Can't open file to append task.\n");
-    return 1;
+    return RET_ERROR;
   }
-  fprintf(fp, TASK_PARSE_TEMPLATE, task->id, task->title, task->description,
+  fprintf(fp, TASK_WRITE_TEMPLATE, task->id, task->title, task->description,
           task->status);
   fclose(fp);
-  return 0;
+  return RET_SUCCESS;
 }
 
+// TODO: Total Refactor
+// Ret: E:RET_ERROR S:RET_SUCCESS
 int file_read_last_str(FILE *fp, char *str, int str_size) {
   long long fp_pos;
   int fp_nl_ctr = 0;
@@ -170,9 +203,9 @@ int file_read_last_str(FILE *fp, char *str, int str_size) {
     if (fgetc(fp) == '\n') {
       if (fp_nl_ctr >= 1) {
         if (!(fgets(str, str_size, fp))) {
-          return 1;
+          return RET_ERROR;
         }
-        return 0;
+        return RET_SUCCESS;
       }
       fp_nl_ctr++;
     }
@@ -181,26 +214,28 @@ int file_read_last_str(FILE *fp, char *str, int str_size) {
   if (fp_pos == 0 && fp_nl_ctr == 1) {
     rewind(fp);
     if (!(fgets(str, str_size, fp))) {
-      return 1;
+      return RET_ERROR;
     }
   }
-  return 0;
+  return RET_SUCCESS;
 }
 
+// Ret: E:RET_ERROR S:RET_SUCCESS
 int strtotask(char *str, Task *task) {
   int things_readed = 0;
 
-  things_readed = sscanf(str, "%d:%255[^:]:%1023[^:]:%d\n", &task->id,
-                         task->title, task->description, &task->status);
+  things_readed = sscanf(str, TASK_READ_TEMPLATE, &task->id, task->title,
+                         task->description, &task->status);
   if (things_readed != TASK_FIELDS_COUNT) {
     fprintf(stderr,
             "!=> Can't properly parse str -> Task. Expected:%d; Readed:%d.\n",
             TASK_FIELDS_COUNT, things_readed);
-    return 1;
+    return RET_ERROR;
   }
-  return 0;
+  return RET_SUCCESS;
 }
 
+// Ret: E:RET_NONVALID S:id for new task [1;...)
 int task_gen_id(char *filename) {
   FILE *fp;
   char buffer[1024];
@@ -209,25 +244,27 @@ int task_gen_id(char *filename) {
 
   file_touch(filename);
 
-  if (!(fp = fopen(TASK_FILE_NAME, "r"))) {
-    fprintf(stderr, "!=> Can't open task file\n");
-    return -1;
+  if (!(fp = file_open_r(filename))) {
+    return RET_NONVALID;
   }
 
-  if (file_read_last_str(fp, buffer, 1024)) {
-    fprintf(stderr, "!=> Can't read task from file\n");
-    return -1;
-  }
-
-  if (buffer[0] == '\0') {
+  // If the file are empty: id = 1
+  if (fseek(fp, 0, SEEK_END) == 0 && ftell(fp) == 0) {
     id = 1;
     return id;
   }
 
-  if (strtotask(buffer, &last_task)) {
-    return -1;
+  // Else getting last task id
+  if (file_read_last_str(fp, buffer, 1024)) {
+    fprintf(stderr, "!=> Can't read task from file\n");
+    return RET_NONVALID;
   }
 
+  if (strtotask(buffer, &last_task)) {
+    return RET_NONVALID;
+  }
+
+  fclose(fp);
   id = last_task.id + 1;
   return id;
 }
@@ -236,12 +273,16 @@ int task_gen_id(char *filename) {
 int main(int argc, char *argv[]) {
   TList *head = NULL; // Init head of TList
   int opt;
-  Task new_task = TASK_DEFAUL_INIT;
+  Task new_task = TASK_DEFAULT_INIT;
 
-  if (argc == 1) { // TODO:
-    head = task_read(TASK_FILE_NAME, head);
+  if (argc == 1) {
+    if (!(head = task_read(TASK_FILE_NAME, head))) {
+      fprintf(stderr, "!=> You don't have any tasks yet.\n");
+      return RET_ERROR;
+    }
     task_show(head, 0);
-    return 0;
+    free_tlist(head);
+    return RET_SUCCESS;
   }
 
   while ((opt = getopt(argc, argv, ARGUMENTS)) != -1) {
@@ -249,18 +290,18 @@ int main(int argc, char *argv[]) {
     case 'c': {
       if (task_create(&new_task, argc, argv)) {
         fprintf(stderr, "!=> Can't create task.\n");
-        return 1;
+        return RET_ERROR;
       }
       if (task_file_append(&new_task)) {
-        return 1;
+        return RET_ERROR;
       }
       break;
     }
     default: {
       printf("=> Incorrect option. Try \"%s -h\" for help.\n", argv[0]);
-      return 1;
+      return RET_ERROR;
     }
     }
   }
-  return 0;
+  return RET_SUCCESS;
 }
