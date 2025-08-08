@@ -7,10 +7,12 @@
 #define TASK_TITLE_LEN 256
 #define TASK_DESCRIPTION_LEN 1024
 #define TASK_FILE_NAME "cdoto.txt"
+#define TASK_FIELDS_COUNT 4
+// Task Templates
 #define TASK_WRITE_TEMPLATE "%d^%s^%s^%d\n"
 #define TASK_READ_TEMPLATE "%d^%255[^^]^%1023[^^]^%d\n"
+#define TASK_PRINT_TEMPLATE "%d: [%c] %s (%s)\n"
 #define TASK_DEFAULT_INIT {0, "Task", "-", ACTIVE}
-#define TASK_FIELDS_COUNT 4
 /*
  * h - help menu
  * c NAME [DESCRIPTION] - create task
@@ -22,8 +24,8 @@ typedef enum {
   RET_NONVALID = -1, // For Numbers
   RET_SUCCESS = 0,
   RET_ERROR = 1, // For Statuses
-  // RET_UNDEFBEHAV = 77,
-  // RET_NOTIMPLEMENTED = 99
+  RET_UNDEFBEHAV = 77,
+  RET_NOTIMPLEMENTED = 99
 } RetCode;
 
 typedef enum { DONE = 0, ACTIVE = 1, EXPIRED = 2, DELETED = 3 } TaskStatus;
@@ -55,7 +57,7 @@ void free_tlist(TList *head);
 int task_show(TList *head, char mode);
 TList *task_read(char *filename, TList *head);
 int task_gen_id(char *filename);
-int task_create(Task *task, int argc, char *argv[]);
+int task_create(Task *task, char *title, char *description);
 int task_file_append(Task *task);
 int strtotask(char *str, Task *task);
 
@@ -77,14 +79,32 @@ void free_tlist(TList *head) {
 int task_show(TList *head, char mode) {
   TList *curr_node = head;
   int tasks_printed = 0;
+  char status_char;
 
   if (head == NULL) {
     return RET_NONVALID;
   }
 
-  while (curr_node != NULL) { // TODO: Rework Print Template for Tasks
-    printf("%d - %s - %s - %d\n", curr_node->task->id, curr_node->task->title,
-           curr_node->task->description, curr_node->task->status);
+  while (curr_node != NULL) {
+    switch (curr_node->task->status) {
+    case ACTIVE:
+      status_char = ' ';
+      break;
+    case DONE:
+      status_char = 'x';
+      break;
+    case DELETED:
+      status_char = 'D';
+      break;
+    case EXPIRED:
+      status_char = '~';
+      break;
+    default:
+      return RET_UNDEFBEHAV;
+    }
+
+    printf(TASK_PRINT_TEMPLATE, curr_node->task->id, status_char,
+           curr_node->task->title, curr_node->task->description);
     curr_node = curr_node->next;
     tasks_printed++;
   }
@@ -152,9 +172,8 @@ int file_touch(char *filename) {
   return RET_SUCCESS;
 }
 
-// TODO: Instead of argc & argv provide exactly TITLE & DESCRIPTION
 // Ret: E:RET_ERROR S:RET_SUCCESS
-int task_create(Task *task, int argc, char *argv[]) {
+int task_create(Task *task, char *title, char *description) {
   int c_arg_cntr = 0; // 1 < c_arg_cntr < 3
 
   task->id = task_gen_id(TASK_FILE_NAME);
@@ -163,15 +182,11 @@ int task_create(Task *task, int argc, char *argv[]) {
     return RET_ERROR;
   }
 
-  strncpy(task->title, optarg, TASK_TITLE_LEN - 1);
+  strcpy(task->title, title ? title : "Task");
   task->title[TASK_TITLE_LEN - 1] = '\0';
-  c_arg_cntr++; // 1
+  strcpy(task->description, description ? description : "-");
+  task->description[TASK_DESCRIPTION_LEN - 1] = '\0';
 
-  if (optind < argc && argv[optind][0] != '-') {
-    strncpy(task->description, argv[optind], TASK_DESCRIPTION_LEN);
-    task->description[TASK_DESCRIPTION_LEN - 1] = '\0';
-    c_arg_cntr++; // 2
-  }
   return RET_SUCCESS;
 }
 
@@ -190,7 +205,6 @@ int task_file_append(Task *task) {
   return RET_SUCCESS;
 }
 
-// TODO: Total Refactor
 // Ret: E:RET_ERROR S:RET_SUCCESS
 int file_read_last_str(FILE *fp, char *str, int str_size) {
   long long fp_pos;
@@ -274,6 +288,8 @@ int main(int argc, char *argv[]) {
   TList *head = NULL; // Init head of TList
   int opt;
   Task new_task = TASK_DEFAULT_INIT;
+  char title[TASK_TITLE_LEN];
+  char description[TASK_DESCRIPTION_LEN];
 
   if (argc == 1) {
     if (!(head = task_read(TASK_FILE_NAME, head))) {
@@ -287,20 +303,33 @@ int main(int argc, char *argv[]) {
 
   while ((opt = getopt(argc, argv, ARGUMENTS)) != -1) {
     switch (opt) {
-    case 'c': {
-      if (task_create(&new_task, argc, argv)) {
+    case 'c':
+      // Parsing TITLE
+      strncpy(title, optarg, TASK_TITLE_LEN - 1);
+      title[TASK_TITLE_LEN - 1] = '\0';
+      // Parsing DESCRIPTION
+      if (optind < argc) {
+        strncpy(description, argv[optind], TASK_DESCRIPTION_LEN);
+        description[TASK_DESCRIPTION_LEN - 1] = '\0';
+      } else {
+        description[0] = '-';
+        description[1] = '\0';
+      }
+
+      // Creating & Saving new task
+      if (task_create(&new_task, title, description)) {
         fprintf(stderr, "!=> Can't create task.\n");
         return RET_ERROR;
       }
       if (task_file_append(&new_task)) {
         return RET_ERROR;
       }
-      break;
-    }
-    default: {
+      return RET_SUCCESS;
+    case 'h':
+      return RET_NOTIMPLEMENTED;
+    default:
       printf("=> Incorrect option. Try \"%s -h\" for help.\n", argv[0]);
       return RET_ERROR;
-    }
     }
   }
   return RET_SUCCESS;
