@@ -16,8 +16,9 @@
 /*
  * h - help menu
  * c NAME [DESCRIPTION] - create task
+ * d ID - mark task with this ID as done
  */
-#define ARGUMENTS "hc:"
+#define ARGUMENTS "hc:d:"
 
 // STRUCTURES
 typedef enum {
@@ -34,7 +35,6 @@ typedef struct task {
   int id;
   char title[TASK_TITLE_LEN];
   char description[TASK_DESCRIPTION_LEN];
-  // int status; // 0 - done; 1 - active ; 2 - other;
   TaskStatus status;
 } Task;
 
@@ -49,21 +49,72 @@ typedef struct tasks_list {
 int file_touch(char *filename);
 FILE *file_open_r(char *filename);
 FILE *file_open_a(char *filename); // TODO:
-FILE *file_open_w(char *filename); // TODO:
-int file_read_last_str(FILE *fp, char *str, int str_size);
-void free_tlist(TList *head);
+FILE *file_open_w(char *filename);
 
-// Task shit
-int task_show(TList *head, char mode);
+// Task&Files
 TList *task_read(char *filename, TList *head);
+int task_write(char *filename, TList *head); // TODO:
+int task_file_append(Task *task);
+int file_read_last_str(FILE *fp, char *str, int str_size);
+
+// Tasks Stuff
 int task_gen_id(char *filename);
 int task_create(Task *task, char *title, char *description);
-int task_file_append(Task *task);
 int strtotask(char *str, Task *task);
+int tasktostr(Task *task, char *str); // TODO:
+
+// TList things
+Task *task_search_id(int id, TList *head);
+int task_show(TList *head, char mode);
+void tlist_free(TList *head);
 
 // DEFINITIONS
 
-void free_tlist(TList *head) {
+int task_write(char *filename, TList *head) {
+  FILE *fp = file_open_w(filename);
+  if (!fp) {
+    fprintf(stderr, "!=> Can't open file %s in W mode.\n", filename);
+    return RET_ERROR;
+  }
+  TList *curr = head;
+
+  while (curr != NULL) {
+    fprintf(fp, TASK_WRITE_TEMPLATE, curr->task->id, curr->task->title,
+            curr->task->description, curr->task->status);
+    curr = curr->next;
+  }
+
+  return RET_SUCCESS;
+}
+
+// Ret: E:NULL S:Pointer To The File
+FILE *file_open_w(char *filename) {
+  FILE *fp = fopen(filename, "w");
+
+  if (fp == NULL) {
+    return NULL;
+  }
+  return fp;
+}
+
+// Ret: E:NULL S:ptr to Task
+Task *task_search_id(int id, TList *head) {
+  if (id <= 0) {
+    return NULL;
+  }
+
+  TList *curr = head;
+
+  while (curr != NULL) {
+    if (curr->task->id == id) {
+      return curr->task;
+    }
+    curr = curr->next;
+  }
+  return NULL;
+}
+
+void tlist_free(TList *head) {
   TList *next_node;
   TList *node = head;
 
@@ -133,10 +184,10 @@ TList *task_read(char *filename, TList *head) {
   TList *curr_node = NULL;
   int tasks_cntr = 0;
   char str_buff[TASK_TITLE_LEN + TASK_DESCRIPTION_LEN + 128];
-  char *is_continue;
+  char *is_continue = "a"; // Init to prevent undefined behavior
 
   // Reading Strings & Creating Chained List
-  while (is_continue) {
+  while (is_continue != NULL) {
     is_continue =
         fgets(str_buff, TASK_TITLE_LEN + TASK_DESCRIPTION_LEN + 128, fp);
     if (is_continue == NULL || str_buff[0] == '\n') {
@@ -286,10 +337,17 @@ int task_gen_id(char *filename) {
 // ENTRY POINT
 int main(int argc, char *argv[]) {
   TList *head = NULL; // Init head of TList
-  int opt;
+  int opt;            // For optarg()
+
+  // -c flag stuff
+  // TODO: Alloc them in case of -c
   Task new_task = TASK_DEFAULT_INIT;
   char title[TASK_TITLE_LEN];
   char description[TASK_DESCRIPTION_LEN];
+
+  // -d flag stuff
+  Task *found_task;
+  int searhing_id;
 
   if (argc == 1) {
     if (!(head = task_read(TASK_FILE_NAME, head))) {
@@ -297,7 +355,7 @@ int main(int argc, char *argv[]) {
       return RET_ERROR;
     }
     task_show(head, 0);
-    free_tlist(head);
+    tlist_free(head);
     return RET_SUCCESS;
   }
 
@@ -327,6 +385,26 @@ int main(int argc, char *argv[]) {
       return RET_SUCCESS;
     case 'h':
       return RET_NOTIMPLEMENTED;
+    case 'd':
+      searhing_id = atoi(optarg);
+      // Loading tasks from file to the memory
+      if (!(head = task_read(TASK_FILE_NAME, head))) {
+        fprintf(stderr, "!=> Can't read tasks from file to the memory.\n");
+        return RET_ERROR;
+      }
+      // Searching for needed task
+      if (!(found_task = task_search_id(searhing_id, head))) {
+        fprintf(stderr, "!=> Invalid ID.\n");
+        return RET_ERROR;
+      }
+      found_task->status = DONE;
+      // Writing tasks into the file
+      if (task_write(TASK_FILE_NAME, head)) {
+        return RET_ERROR;
+      }
+      // Exit prep.
+      tlist_free(head);
+      return RET_SUCCESS;
     default:
       printf("=> Incorrect option. Try \"%s -h\" for help.\n", argv[0]);
       return RET_ERROR;
