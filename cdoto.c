@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 
-// CONSTANTS (PP)
+// CONSTANTS
 #define TASK_TITLE_LEN 256
 #define TASK_DESCRIPTION_LEN 1024
 #define TASK_FILE_NAME "cdoto.txt"
@@ -15,10 +15,14 @@
 #define TASK_DEFAULT_INIT {0, "Task", "-", ACTIVE}
 /*
  * h - help menu
- * c NAME [DESCRIPTION] - create task
+ * c TITLE DESCRIPTION - create task
  * d ID - mark task with this ID as done
  */
 #define ARGUMENTS "hc:d:"
+
+const char help_msg[] =
+    "HELP MENU:\n\nFlags:\n\t-h -- show this message\n\t-c TITLE DESCRIPTION "
+    "-- create new task\n\t-d ID -- mark task as DONE\n";
 
 // STRUCTURES
 typedef enum {
@@ -384,7 +388,8 @@ int main(int argc, char *argv[]) {
       }
       return RET_SUCCESS;
     case 'h':
-      return RET_NOTIMPLEMENTED;
+      printf("%s", help_msg);
+      return RET_SUCCESS;
     case 'd':
       searhing_id = atoi(optarg);
       // Loading tasks from file to the memory
