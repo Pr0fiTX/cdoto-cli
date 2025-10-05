@@ -14,15 +14,20 @@
 #define TASK_PRINT_TEMPLATE "%d: [%c] %s (%s)\n"
 #define TASK_DEFAULT_INIT {0, "Task", "-", ACTIVE}
 /*
- * h - help menu
- * c TITLE DESCRIPTION - create task
- * d ID - mark task with this ID as done
+ * h - help menu (./prog -h)
+ * c TITLE DESCRIPTION - create task (./prog -c "Title" "Description")
+ * d ID - mark task with this ID as done or use negative ID for undone (./prog
+ * -d 24) & (./prog -d -24)
+ * r ID - mark task with this ID as deleted or use
+ * negative ID for restore (./prog -r 24) & (./prog -r -24)
  */
 #define ARGUMENTS "hc:d:"
 
 const char help_msg[] =
     "HELP MENU:\n\nFlags:\n\t-h -- show this message\n\t-c TITLE DESCRIPTION "
-    "-- create new task\n\t-d ID -- mark task as DONE\n";
+    "-- create new task\n\t-d ID -- mark task as DONE, or provide negative ID "
+    "(ex. -3) "
+    "to mark as ACTIVE\n";
 
 // STRUCTURES
 typedef enum {
@@ -57,7 +62,7 @@ FILE *file_open_w(char *filename);
 
 // Task&Files
 TList *task_read(char *filename, TList *head);
-int task_write(char *filename, TList *head); // TODO:
+int task_write(char *filename, TList *head);
 int task_file_append(Task *task);
 int file_read_last_str(FILE *fp, char *str, int str_size);
 
@@ -65,7 +70,6 @@ int file_read_last_str(FILE *fp, char *str, int str_size);
 int task_gen_id(char *filename);
 int task_create(Task *task, char *title, char *description);
 int strtotask(char *str, Task *task);
-int tasktostr(Task *task, char *str); // TODO:
 
 // TList things
 Task *task_search_id(int id, TList *head);
@@ -77,7 +81,6 @@ void tlist_free(TList *head);
 int task_write(char *filename, TList *head) {
   FILE *fp = file_open_w(filename);
   if (!fp) {
-    fprintf(stderr, "!=> Can't open file %s in W mode.\n", filename);
     return RET_ERROR;
   }
   TList *curr = head;
@@ -96,6 +99,7 @@ FILE *file_open_w(char *filename) {
   FILE *fp = fopen(filename, "w");
 
   if (fp == NULL) {
+    fprintf(stderr, "!=> Can't open file \"%s\" in WRITE mode.\n", filename);
     return NULL;
   }
   return fp;
@@ -103,14 +107,17 @@ FILE *file_open_w(char *filename) {
 
 // Ret: E:NULL S:ptr to Task
 Task *task_search_id(int id, TList *head) {
-  if (id <= 0) {
-    return NULL;
+  TList *curr = head;
+  unsigned int s_id;
+
+  if (id < 0) {
+    s_id = -id;
+  } else {
+    s_id = id;
   }
 
-  TList *curr = head;
-
   while (curr != NULL) {
-    if (curr->task->id == id) {
+    if (curr->task->id == s_id) {
       return curr->task;
     }
     curr = curr->next;
@@ -402,12 +409,17 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "!=> Invalid ID.\n");
         return RET_ERROR;
       }
-      found_task->status = DONE;
+      // Changing status
+      if (searhing_id >= 0) {
+        found_task->status = DONE;
+      } else {
+        found_task->status = ACTIVE; // If Negative status
+      }
       // Writing tasks into the file
       if (task_write(TASK_FILE_NAME, head)) {
         return RET_ERROR;
       }
-      // Exit prep.
+      // Exit
       tlist_free(head);
       return RET_SUCCESS;
     default:
